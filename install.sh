@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -v
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -9,7 +9,7 @@ print_status() {
 }
 
 if [ $# -lt 4 ]; then
-    echo "Execution format ./install.sh stakeaddr email fqdn region nodetype"
+    echo "Execution format ./install.sh stakeaddr email fqdn region nodetype nodenumber"
     exit
 fi
 
@@ -18,6 +18,7 @@ stakeaddr=${1}
 email=${2}
 fqdn=${3}
 region=${4}
+node=${5}
 
 if [ -z "$5" ]; then
   nodetype="secure"
@@ -63,7 +64,7 @@ systemctl enable docker
 systemctl start docker
 
 print_status "Creating the docker mount directories..."
-mkdir -p /mnt/zen/{config,data,zcash-params,certs}
+mkdir -p /mnt/zen$node/{config,data,zcash-params,certs}
 
 print_status "Removing acme container service..."
 rm /etc/systemd/system/acme-sh.service
@@ -77,7 +78,7 @@ add-apt-repository ppa:certbot/certbot -y
 apt-get update -y
 apt-get install certbot -y
 
-print_status "Issusing cert for $fqdn..."
+print_status "Issuing cert for $fqdn..."
 certbot certonly -n --agree-tos --register-unsafely-without-email --standalone -d $fqdn
 
 chmod -R 755 /etc/letsencrypt/
@@ -111,7 +112,7 @@ systemctl start zenupdate.timer
 systemctl enable zenupdate.timer
 
 print_status "Creating the zen configuration."
-cat <<EOF > /mnt/zen/config/zen.conf
+cat <<EOF > /mnt/zen$node/config/zen.conf
 rpcport=18231
 rpcallowip=127.0.0.1
 rpcworkqueue=512
@@ -134,7 +135,7 @@ EOF
 print_status "Trying to determine public ip addresses..."
 publicips=$(dig $fqdn A $fqdn AAAA +short)
 while read -r line; do
-    echo "externalip=$line" >> /mnt/zen/config/zen.conf
+    echo "externalip=$line" >> /mnt/zen$node/config/zen.conf
 done <<< "$publicips"
 
 print_status "Creating the secnode config..."
@@ -145,8 +146,8 @@ else
   servers=ts
 fi
 
-mkdir -p /mnt/zen/secnode/
-cat << EOF > /mnt/zen/secnode/config.json
+mkdir -p /mnt/zen$node/secnode/
+cat << EOF > /mnt/zen$node/secnode/config.json
 {
  "active": "$nodetype",
  "$nodetype": {
@@ -165,7 +166,7 @@ cat << EOF > /mnt/zen/secnode/config.json
   "stakeaddr": "$stakeaddr",
   "email": "$email",
   "fqdn": "$fqdn",
-  "ipv": "4",
+  "ipv": "6",
   "region": "$region",
   "home": "ts1.$region",
   "category": "none"
@@ -187,7 +188,7 @@ ExecStartPre=-/usr/bin/docker stop zen-node
 ExecStartPre=-/usr/bin/docker rm  zen-node
 # Always pull the latest docker image
 ExecStartPre=/usr/bin/docker pull whenlambomoon/zend:latest
-ExecStart=/usr/bin/docker run --rm --net=host -p 9033:9033 -p 18231:18231 -v /mnt/zen:/mnt/zen -v /etc/letsencrypt/:/etc/letsencrypt/ --name zen-node whenlambomoon/zend:latest
+ExecStart=/usr/bin/docker run --rm --net=host -p 9033:9033 -p 18231:18231 -v /mnt$node/zen:/mnt/zen -v /etc/letsencrypt/:/etc/letsencrypt/ --name zen-node whenlambomoon/zend:latest
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -206,8 +207,8 @@ ExecStartPre=-/usr/bin/docker stop zen-secnodetracker
 ExecStartPre=-/usr/bin/docker rm  zen-secnodetracker
 # Always pull the latest docker image
 ExecStartPre=/usr/bin/docker pull whenlambomoon/secnodetracker:latest
-#ExecStart=/usr/bin/docker run --init --rm --net=host -v /mnt/zen:/mnt/zen --name zen-secnodetracker whenlambomoon/secnodetracker:latest
-ExecStart=/usr/bin/docker run --rm --net=host -v /mnt/zen:/mnt/zen --name zen-secnodetracker whenlambomoon/secnodetracker:latest
+#ExecStart=/usr/bin/docker run --init --rm --net=host -v /mnt/zen$node:/mnt/zen --name zen-secnodetracker whenlambomoon/secnodetracker:latest
+ExecStart=/usr/bin/docker run --rm --net=host -v /mnt/zen$node:/mnt/zen --name zen-secnodetracker whenlambomoon/secnodetracker:latest
 [Install]
 WantedBy=multi-user.target
 EOF
